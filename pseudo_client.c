@@ -1889,7 +1889,7 @@ pseudo_client_op(pseudo_op_t op, int access, int fd, int dirfd, const char *path
 	case OP_CHROOT:
 		if (pseudo_client_chroot(path) == 0) {
 			/* return a non-zero value to show non-failure */
-			result = &msg;
+			result = pseudo_msg_dup(&msg);
 		}
 		do_request = 0;
 		break;
