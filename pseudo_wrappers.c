@@ -52,9 +52,8 @@
 static void pseudo_enosys(const char *);
 static int pseudo_check_wrappers(void);
 static volatile int antimagic = 0;
-static pthread_mutex_t pseudo_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_t pseudo_mutex_holder;
-static int pseudo_mutex_recursion = 0;
+static pthread_mutex_t pseudo_mutex;
+static pthread_mutexattr_t pseudo_mutex_attr;
 static int pseudo_getlock(void);
 static void pseudo_droplock(void);
 static size_t pseudo_dechroot(char *, size_t);
@@ -92,16 +91,21 @@ extern ssize_t (*pseudo_real_fgetxattr)(int, const char *, void *, size_t);
 extern int (*pseudo_real_lsetxattr)(const char *, const char *, const void *, size_t, int);
 extern int (*pseudo_real_fsetxattr)(int, const char *, const void *, size_t, int);
 #endif
+static void libpseudo_init_lock(void) {
+	pthread_mutexattr_init(&pseudo_mutex_attr);
+	pthread_mutexattr_settype(&pseudo_mutex_attr, PTHREAD_MUTEX_RECURSIVE);
+	pthread_mutex_init(&pseudo_mutex, &pseudo_mutex_attr);
+}
 
 static void libpseudo_atfork_child(void)
 {
-	pthread_mutex_init(&pseudo_mutex, NULL);
-	pseudo_mutex_recursion = 0;
-	pseudo_mutex_holder = 0;
+	libpseudo_init_lock();
 }
 
 static void
 _libpseudo_init(void) {
+	libpseudo_init_lock();
+
 	if (!_libpseudo_initted)
 		pthread_atfork(NULL, NULL, libpseudo_atfork_child);
 
@@ -214,26 +218,16 @@ pseudo_sigblock(sigset_t *saved) {
 
 static int
 pseudo_getlock(void) {
-	if (pthread_equal(pseudo_mutex_holder, pthread_self())) {
-		++pseudo_mutex_recursion;
+	if (pthread_mutex_lock(&pseudo_mutex) == 0) {
 		return 0;
 	} else {
-		if (pthread_mutex_lock(&pseudo_mutex) == 0) {
-			pseudo_mutex_recursion = 1;
-			pseudo_mutex_holder = pthread_self();
-			return 0;
-		} else {
-			return -1;
-		}
+		return -1;
 	}
 }
 
 static void
 pseudo_droplock(void) {
-	if (--pseudo_mutex_recursion == 0) {
-		pseudo_mutex_holder = 0;
-		pthread_mutex_unlock(&pseudo_mutex);
-	}
+	pthread_mutex_unlock(&pseudo_mutex);
 }
 
 void
